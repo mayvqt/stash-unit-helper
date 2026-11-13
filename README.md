@@ -5,3 +5,4 @@ Routes you to the STASH units you can build or fill, using the [Shortest Path](h
 - Pick a tier in the side panel and press Start.
 - An on-screen box shows the build materials and items the current unit needs.
 - Your bank is filtered to those items (requires Bank Tags).
+- Open the S.T.A.S.H. chart in your house or Watson's noticeboard in Hosidius once to load filled units.
