@@ -2,6 +2,7 @@ package com.stashunithelper;
 
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import net.runelite.api.gameval.ItemID;
@@ -136,7 +137,7 @@ final class StashUnitData
 	);
 
 	private static final Map<STASHUnit, StashUnitInfo> BY_UNIT;
-	private static final Map<Integer, StashUnitInfo> BY_OBJECT_ID = new java.util.HashMap<>();
+	private static final Map<Integer, StashUnitInfo> BY_OBJECT_ID = new HashMap<>();
 
 	static
 	{

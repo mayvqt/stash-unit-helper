@@ -55,6 +55,7 @@ import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.plugins.cluescrolls.clues.emote.STASHUnit;
 import net.runelite.client.plugins.cluescrolls.clues.item.ItemRequirement;
 import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.Text;
@@ -125,9 +126,9 @@ public class StashUnitHelperPlugin extends Plugin
 	@Getter
 	private StashPlanner.Target target;
 	@Getter
-	private List<StashUnitHelperPanel.Line> buildNeeds = List.of();
+	private List<NeededItem> buildItems = List.of();
 	@Getter
-	private List<StashUnitHelperPanel.Line> stashNeeds = List.of();
+	private List<NeededItem> fillItems = List.of();
 	/** Built from the containers on demand; null after any of them changes. */
 	private OwnedItems ownedCache;
 	private boolean pathShown;
@@ -441,7 +442,7 @@ public class StashUnitHelperPlugin extends Plugin
 	void routeTo(STASHUnit unit)
 	{
 		StashState state = state(unit);
-		if (state == null)
+		if (state == null || state == StashState.FILLED)
 		{
 			return;
 		}
@@ -650,18 +651,13 @@ public class StashUnitHelperPlugin extends Plugin
 	private StashPlanner.Options options()
 	{
 		return new StashPlanner.Options(client.getBoostedSkillLevel(Skill.CONSTRUCTION), config.build(), config.fill(),
-			this::tierEnabled, EnumSet.copyOf(skipped));
-	}
-
-	private boolean tierEnabled(StashTier tier)
-	{
-		return tier == config.tier();
+			config.tier(), EnumSet.copyOf(skipped));
 	}
 
 	private StashPlanner.Target nearest(List<StashPlanner.Target> targets)
 	{
 		Player player = client.getLocalPlayer();
-		if (player == null || targets.isEmpty())
+		if (player == null)
 		{
 			return targets.isEmpty() ? null : targets.get(0);
 		}
@@ -755,22 +751,24 @@ public class StashUnitHelperPlugin extends Plugin
 	{
 		if (target == null || !statesKnown)
 		{
-			buildNeeds = List.of();
-			stashNeeds = List.of();
+			buildItems = List.of();
+			fillItems = List.of();
 			return;
 		}
 		OwnedItems owned = owned();
 		StashState state = state(target.getInfo().getUnit());
-		buildNeeds = state == StashState.NOT_BUILT ? buildLines(target.getInfo().getTier(), owned) : List.of();
-		stashNeeds = state == StashState.FILLED ? List.of() : fillLines(target.getInfo(), owned);
+		buildItems = state == StashState.NOT_BUILT ? buildItemsFor(target.getInfo().getTier(), owned) : List.of();
+		fillItems = state == StashState.FILLED ? List.of() : fillItemsFor(target.getInfo(), owned);
 	}
 
 	private StashUnitHelperPanel.Model buildModel()
 	{
 		StashTier tier = config.tier();
+		boolean routing = target != null || pendingQueryId != null;
 		if (!statesKnown)
 		{
-			return new StashUnitHelperPanel.Model(tier, "Log in to load your STASH units.", null, null, List.of());
+			return new StashUnitHelperPanel.Model(tier, 0, 0, null, null, null, routing,
+				"Log in to load your STASH units.", List.of());
 		}
 
 		OwnedItems owned = owned();
@@ -786,20 +784,13 @@ public class StashUnitHelperPlugin extends Plugin
 			StashState state = state(info.getUnit());
 			builtCount += state != StashState.NOT_BUILT ? 1 : 0;
 			filledCount += state == StashState.FILLED ? 1 : 0;
-			String tooltip = "<html>Stores:<br>" + fillLines(info, owned).stream()
-				.map(l -> (l.getWhere() == OwnedItems.Where.MISSING ? "✗ " : "✓ ") + l.getText())
-				.collect(Collectors.joining("<br>"))
-				+ "</html>";
 			rows.add(new StashUnitHelperPanel.Row(info.getUnit(), info.getName(), state, skipped.contains(info.getUnit()),
-				target != null && target.getInfo().getUnit() == info.getUnit(), tooltip));
+				target != null && target.getInfo().getUnit() == info.getUnit(), tooltip(info, owned)));
 		}
 
-		String status = String.format("Built %d/%d · Filled %d/%d", builtCount, rows.size(), filledCount, rows.size());
 		int level = client.getBoostedSkillLevel(Skill.CONSTRUCTION);
-		if (level < tier.getConstructionLevel())
-		{
-			status += "<br>You need Construction " + tier.getConstructionLevel() + " to build these (you have " + level + ").";
-		}
+		String levelWarning = level >= tier.getConstructionLevel() ? null
+			: "Construction " + tier.getConstructionLevel() + " needed to build (you have " + level + ")";
 
 		String notice;
 		if (pendingQueryId != null)
@@ -808,15 +799,16 @@ public class StashUnitHelperPlugin extends Plugin
 		}
 		else if (shortestPathMissing)
 		{
-			notice = "Shortest Path isn't answering, so this is the closest unit in a straight line. Enable the Shortest Path plugin for walked routes.";
+			notice = "Shortest Path isn't answering, so this is the closest unit in a straight line. "
+				+ "Turn on the Shortest Path plugin for walking routes.";
 		}
 		else if (target != null && !target.isReady())
 		{
-			notice = "Nothing in this tier is ready yet. Get the items marked ✗ in the on-screen box.";
+			notice = "Nothing in this tier is ready yet. The items box shows what's missing.";
 		}
 		else if (target == null && filledCount == rows.size())
 		{
-			notice = "Every " + tier.getDisplayName().toLowerCase() + " unit is filled.";
+			notice = "All " + tier.getDisplayName().toLowerCase() + " units are filled.";
 		}
 		else if (!filledSynced)
 		{
@@ -827,39 +819,54 @@ public class StashUnitHelperPlugin extends Plugin
 			notice = null;
 		}
 
-		String targetText = target == null ? null : actionLabel(target) + ": " + target.getInfo().getName();
-		return new StashUnitHelperPanel.Model(tier, status, targetText, notice, List.copyOf(rows));
+		return new StashUnitHelperPanel.Model(tier, builtCount, filledCount, levelWarning,
+			target == null ? null : actionLabel(target), target == null ? null : target.getInfo().getName(),
+			routing, notice, List.copyOf(rows));
 	}
 
-	private List<StashUnitHelperPanel.Line> buildLines(StashTier tier, OwnedItems owned)
+	/** Unit row tooltip: the items it stores, and where the player has each. */
+	private String tooltip(StashUnitInfo info, OwnedItems owned)
 	{
-		List<StashUnitHelperPanel.Line> lines = new ArrayList<>();
-		lines.add(new StashUnitHelperPanel.Line(StashPlanner.PLANKS + " x " + itemName(tier.getPlankId()),
+		return "<html><b>Stores</b><br>" + fillItemsFor(info, owned).stream()
+			.map(i -> i.getName() + " <font color='" + hex(i.getWhere().getColor()) + "'>" + i.getWhere().getLabel() + "</font>")
+			.collect(Collectors.joining("<br>"))
+			+ "<br><font color='" + hex(ColorScheme.LIGHT_GRAY_COLOR.darker()) + "'>Click to route, right-click for more</font>"
+			+ "</html>";
+	}
+
+	private static String hex(Color color)
+	{
+		return String.format("#%06x", color.getRGB() & 0xFFFFFF);
+	}
+
+	private List<NeededItem> buildItemsFor(StashTier tier, OwnedItems owned)
+	{
+		List<NeededItem> items = new ArrayList<>();
+		items.add(new NeededItem(StashPlanner.PLANKS + " x " + itemName(tier.getPlankId()),
 			owned.locate(Set.of(tier.getPlankId()), StashPlanner.PLANKS)));
-		lines.add(new StashUnitHelperPanel.Line(StashPlanner.NAILS + " x nails (one metal)",
-			owned.locate(StashPlanner.NAIL_IDS, StashPlanner.NAILS)));
-		lines.add(new StashUnitHelperPanel.Line("Hammer", owned.locate(StashPlanner.HAMMERS, 1)));
-		lines.add(new StashUnitHelperPanel.Line("Saw", owned.locate(StashPlanner.SAWS, 1)));
+		items.add(new NeededItem(StashPlanner.NAILS + " x Nails (one type)", owned.locate(StashPlanner.NAIL_IDS, StashPlanner.NAILS)));
+		items.add(new NeededItem("Hammer", owned.locate(StashPlanner.HAMMERS, 1)));
+		items.add(new NeededItem("Saw", owned.locate(StashPlanner.SAWS, 1)));
 		if (tier.isGoldLeaf())
 		{
-			lines.add(new StashUnitHelperPanel.Line(itemName(ItemID.GOLD_LEAF), owned.locate(Set.of(ItemID.GOLD_LEAF), 1)));
+			items.add(new NeededItem(itemName(ItemID.GOLD_LEAF), owned.locate(Set.of(ItemID.GOLD_LEAF), 1)));
 		}
-		return lines;
+		return items;
 	}
 
-	private List<StashUnitHelperPanel.Line> fillLines(StashUnitInfo info, OwnedItems owned)
+	private List<NeededItem> fillItemsFor(StashUnitInfo info, OwnedItems owned)
 	{
 		if (info.getRequirements() == null)
 		{
-			return List.of(new StashUnitHelperPanel.Line("Items unknown (update RuneLite)", OwnedItems.Where.MISSING));
+			return List.of(new NeededItem("Unknown items (update RuneLite)", OwnedItems.Where.MISSING));
 		}
-		List<StashUnitHelperPanel.Line> lines = new ArrayList<>();
+		List<NeededItem> items = new ArrayList<>();
 		for (ItemRequirement requirement : info.getRequirements())
 		{
 			String name = requirementNames.computeIfAbsent(requirement, r -> r.getCollectiveName(client));
-			lines.add(new StashUnitHelperPanel.Line(name, owned.locate(requirement)));
+			items.add(new NeededItem(name, owned.locate(requirement)));
 		}
-		return lines;
+		return items;
 	}
 
 	private String itemName(int itemId)

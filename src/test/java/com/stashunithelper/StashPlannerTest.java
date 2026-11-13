@@ -30,7 +30,7 @@ public class StashPlannerTest
 
 	private static StashPlanner.Options options(int level, Set<STASHUnit> skipped)
 	{
-		return new StashPlanner.Options(level, true, true, tier -> true, skipped);
+		return new StashPlanner.Options(level, true, true, StashTier.BEGINNER, skipped);
 	}
 
 	private static List<StashPlanner.Target> ready(StashState state, OwnedItems owned, int level)

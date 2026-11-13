@@ -3,11 +3,12 @@ package com.stashunithelper;
 import java.awt.Color;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import java.util.Set;
 import net.runelite.api.Item;
 import net.runelite.client.plugins.cluescrolls.clues.item.ItemRequirement;
+import net.runelite.client.ui.ColorScheme;
 
 /** Snapshot of what the player carries (inventory and worn) and last saw in their bank. */
 final class OwnedItems
@@ -17,9 +18,9 @@ final class OwnedItems
 	@RequiredArgsConstructor
 	enum Where
 	{
-		CARRIED("Have", new Color(90, 200, 90)),
-		BANK("Bank", new Color(230, 160, 60)),
-		MISSING("Missing", new Color(220, 80, 80));
+		CARRIED("Carried", ColorScheme.PROGRESS_COMPLETE_COLOR),
+		BANK("Bank", ColorScheme.PROGRESS_INPROGRESS_COLOR),
+		MISSING("Missing", ColorScheme.PROGRESS_ERROR_COLOR);
 
 		private final String label;
 		private final Color color;

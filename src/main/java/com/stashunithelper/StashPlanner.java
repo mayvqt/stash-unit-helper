@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import lombok.Value;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.client.plugins.cluescrolls.clues.emote.STASHUnit;
@@ -39,7 +38,7 @@ final class StashPlanner
 		int constructionLevel;
 		boolean build;
 		boolean fill;
-		Predicate<StashTier> tierEnabled;
+		StashTier tier;
 		Set<STASHUnit> skipped;
 	}
 
@@ -47,7 +46,7 @@ final class StashPlanner
 	{
 	}
 
-	/** Unfinished units of the enabled tiers; with readyOnly, only those that can be done right now. */
+	/** Unfinished units of the chosen tier; with readyOnly, only those that can be done right now. */
 	static List<Target> targets(List<StashUnitInfo> units, Function<STASHUnit, StashState> states, OwnedItems owned,
 		Options options, boolean readyOnly)
 	{
@@ -56,7 +55,7 @@ final class StashPlanner
 		{
 			StashState state = states.apply(info.getUnit());
 			if (state == null || state == StashState.FILLED || options.getSkipped().contains(info.getUnit())
-				|| !options.getTierEnabled().test(info.getTier())
+				|| info.getTier() != options.getTier()
 				|| (state == StashState.NOT_BUILT ? !options.isBuild() : !options.isFill()))
 			{
 				continue;
